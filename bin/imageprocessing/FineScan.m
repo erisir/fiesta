@@ -642,7 +642,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerate( objects, param
 
        % fit the region with our determined model
       % ***********************************upgrade of gpuaccelerate goes from here
-      %[ data, CoD, fit_region ] = Fit2D( [ guess.model ], guess, params );
+      [ data, CoD, fit_region ] = Fit2D( [ guess.model ], guess, params );
       % ***********************************upgrade of gpuaccelerate ends here
        %     double( [ data.x ] )
 
@@ -696,7 +696,19 @@ function objects = fitRemainingPointsWithGpuAccelerate( objects, params )
   narginchk( 2, 2 ) ;
 
   global error_events; %<< global error structure
-  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   % load images from the global scope
+  global pic;
+    % check parameters array
+  if ~isfield( params, 'max_iter' )
+    params.max_iter = 400; % maximum number of iterations
+  end    
+   % model ID and number of parameter
+   model_id = ModelID.GAUSS_2D;
+   max_n_iterations = 40;
+   tolerance = 1e-4;
+   estimator_id = EstimatorID.LSE;
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   k = 1;
   while k <= numel(objects) % run through all objects
     
@@ -706,7 +718,62 @@ function objects = fitRemainingPointsWithGpuAccelerate( objects, params )
     if numel( objects(k).p ) == 1 % single point
       if isnan( double(objects(k).p(1).b) ) % has not been fitted
         % ***********************************upgrade of gpuaccelerate goes from here
-        %[ data, CoD, fit_region ] = Fit2D( [ guess.model ], guess, params );
+        %[ data, CoD ] = Fit2D( params.bead_model_char, objects(k).p, params );
+        % save information about region of interest in a struct to pass it to the models. 
+        % round the rectangle, because we need interger values for cropping     
+        fit_model = Model2DGaussSymmetric( objects(k).p(1) );
+        bounds = fit_model.bounds;    
+        tl = round(bounds(1:2) - params.fit_size);
+        br = round(bounds(3:4) + params.fit_size);
+        % confine ROI to image (integer values should refer to the center of pixels)
+        tl( tl < 1 ) = 1; % top and left side
+        if br(1) > size( pic, 2 ) % bottom side
+            br(1) = size( pic, 2 );
+        end
+        if br(2) > size( pic, 1 ) % right side
+            br(2) = size( pic, 1 );
+        end
+      
+        data = struct( 'rect', [ round(tl)  round(br)-round(tl) ], 'center', []); 
+        data.offset = data.rect(1:2) - 1; %<< offset between the original and the cropped image
+        % crop image and store it in global variable      
+        fit_pic = imcrop( pic, data.rect ); %<< create cropped image
+        data.img_size = [ size( fit_pic, 2 ), size( fit_pic, 1 ) ];
+        % estimate background level if necessary
+        if isfield( params, 'background' ) % take given background level
+            if isnan(params.background)
+                data.background = median( [ fit_pic(1,:) fit_pic(end,:) transpose( fit_pic(:,1) ) transpose( fit_pic(:,end) ) ] );
+            else
+                data.background = params.background;
+            end
+        else
+            data.background = mean( [ fit_pic(1,:) fit_pic(end,:) transpose( fit_pic(:,1) ) transpose( fit_pic(:,end) ) ] );
+        end
+      
+        %%%%%%%fit start
+        % initial parameters
+        %[amp, x0, y0, width, offset]
+        pos =  objects(k).p.x;
+        initial_parameter = single([max(max(fit_pic))-data.background,  pos(2)-data.offset(2)-1,  pos(1)-data.offset(1)-1,  4, data.background]);
+        initial_parameter = repmat(single(initial_parameter'), [1, 1]);   
+        [imgWidth,imgHeight] = size(fit_pic);
+        fitData1D = single(reshape(fit_pic,imgWidth*imgHeight,1));
+        [parameters, states, chi_squares, n_iterations, time] = gpufit(fitData1D, [],model_id, initial_parameter, tolerance, max_n_iterations, [], estimator_id, []);
+    
+        ampGpu = parameters(1);
+        xposGpu = parameters(2);
+        yposGpu = parameters(3);
+        widthGpu = parameters(4);
+        offsetGpu = parameters(5);
+        value = [];
+        CoD = 1 - chi_squares ./ sum( ( fitData1D - mean( fitData1D,1) ).^2 );
+        xe = 0.0002;
+        value.x = double_error( [yposGpu,xposGpu] + data.offset, [xe,xe] );
+        value.o = double_error( ampGpu, xe );
+        value.w = double_error( widthGpu,xe); % 2.77.. = 4*log(2)
+        value.h = double_error( ampGpu, xe );
+        value.r = double_error( [] );
+        value.b = double_error( [offsetGpu,xe] );
         % ***********************************upgrade of gpuaccelerate ends here
         if CoD > params.min_cod % fit went well
           objects(k).p = data;

@@ -1,21 +1,23 @@
-22:17:24  Analysing frame 1
-22:17:24  START SCANNING
-22:17:24  create black&white image
-22:17:24  scan area 1
-22:17:24  scan area 2
-22:17:24  scan area 3
-22:17:24  scan area 4
-22:17:24  scan area 5
-22:17:24  scan area 6
-22:17:24  scan area 7
-22:17:24  scan area 8
-22:17:24  scan area 9
-22:17:24  scan area 10
-22:17:24  scan area 11
-22:17:24  scan area 12
-22:17:24  scan area 13
-22:17:24  scan area 14
-22:17:24  scan area 15
-22:17:24  scan area 16
-22:17:24  16 objects found
-22:17:24  start fine scan
+23:39:50  Analysing frame 1
+23:39:50  START SCANNING
+23:39:50  create black&white image
+23:39:50  scan area 1
+23:39:50  scan area 2
+23:39:50  scan area 3
+23:39:50  scan area 4
+23:39:50  scan area 5
+23:39:50  scan area 6
+23:39:50  scan area 7
+23:39:50  scan area 8
+23:39:50  scan area 9
+23:39:50  scan area 10
+23:39:50  scan area 11
+23:39:50  scan area 12
+23:39:50  scan area 13
+23:39:50  scan area 14
+23:39:50  scan area 15
+23:39:50  scan area 16
+23:39:50  16 objects found
+23:39:50  start fine scan
+23:39:50  fit remaining intermediate points
+23:39:50  process object 1 with 1 points
