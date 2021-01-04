@@ -31,7 +31,11 @@ function objects = FineScan( objects, params )
   params.fit_size = FIT_AREA_FACTOR * params.object_width;
   
   % process clusters 
-  [objects, deleteObjects] = fitComplicatedParts( objects, params ); 
+  if params.gpu_accelerate
+    [objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerate( objects, params );      
+  else
+    [objects, deleteObjects] = fitComplicatedParts( objects, params ); 
+  end
   
   %remove false points (post process analysis) from objects
   objects(deleteObjects)=[];
@@ -43,7 +47,11 @@ function objects = FineScan( objects, params )
   Log( 'fit remaining intermediate points', params );
   
   % process the remaining easy points
-  objects = fitRemainingPoints( objects, params );
+  if params.gpu_accelerate
+    objects = fitRemainingPointsWithGpuAccelerate( objects, params );
+  else
+    objects = fitRemainingPoints( objects, params );
+  end
   
   if params.display > 1 % debug output
      for k = 1:numel( objects )

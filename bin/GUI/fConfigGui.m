@@ -196,7 +196,7 @@ hConfigGui.pGeneral.cIncludeFitData = uicontrol('Parent',hConfigGui.pGeneral.pTr
                                                 'TooltipString','Right click for Help','UIContextMenu',hConfigGui.mHelpContext,'UserData','Tracking');   
                                             
 hConfigGui.pGeneral.cGpuAccelerate = uicontrol('Parent',hConfigGui.pGeneral.pTrack,'Style','checkbox','BackgroundColor',c,'Units','normalized',...
-                                                'Position',[.05 .1 .9 .2],'Fontsize',12,'String','GpuAccelerate(CUDA SDK needed)','Tag','cIncludeFitData','HorizontalAlignment','left','Value',Config.OnlyTrack.IncludeData,...
+                                                'Position',[.05 .1 .9 .2],'Fontsize',12,'String','GpuAccelerate(CUDA SDK needed)','Tag','cGpuAccelerate','HorizontalAlignment','left','Value',Config.OnlyTrack.IncludeData,...
                                                 'TooltipString','Right click for Help','UIContextMenu',hConfigGui.mHelpContext,'UserData','Tracking');   
                                      
 hConfigGui.pGeneral.pThreshold = uipanel('Parent',hConfigGui.pGeneral.panel,'Units','normalized','Fontsize',10,'BackgroundColor',c,...
@@ -986,6 +986,7 @@ end
 tempConfig.OnlyTrack.MolFull=get(hConfigGui.pGeneral.cMolFull,'Value');
 tempConfig.OnlyTrack.FilFull=get(hConfigGui.pGeneral.cFilFull,'Value');
 tempConfig.OnlyTrack.IncludeData=get(hConfigGui.pGeneral.cIncludeFitData,'Value');
+tempConfig.OnlyTrack.GpuAccelerate=get(hConfigGui.pGeneral.cGpuAccelerate,'Value');
 
 tempConfig.Threshold.Area=str2double(get(hConfigGui.pGeneral.eAreaThreshold,'String'));
 if tempConfig.Threshold.Area<=0||isnan(tempConfig.Threshold.Area)

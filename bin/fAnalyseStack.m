@@ -34,6 +34,7 @@ if Config.OnlyTrackFil==1
     params.find_beads=0;
 end
 params.include_data = Config.OnlyTrack.IncludeData;
+params.gpu_accelerate = Config.OnlyTrack.GpuAccelerate;
 params.area_threshold=Config.Threshold.Area;
 params.height_threshold=Config.Threshold.Height;   
 params.fwhm_estimate=Config.Threshold.FWHM;
