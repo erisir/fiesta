@@ -585,6 +585,20 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerate( objects, param
   if isempty( cluster_ids )
     return
   end
+  
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % load images from the global scope
+    global pic;
+    % check parameters array
+    if ~isfield( params, 'max_iter' )
+        params.max_iter = 400; % maximum number of iterations
+    end    
+    % model ID and number of parameter
+    max_n_iterations = 80;
+    tolerance = 1e-3;
+    estimator_id = EstimatorID.LSE;
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
   rough_objects = objects; % make backup for initial values
   point_ids = unique( cluster_ids(:,1:2), 'rows' );
   for n = 1:size(point_ids,1)
@@ -642,18 +656,124 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerate( objects, param
 
        % fit the region with our determined model
       % ***********************************upgrade of gpuaccelerate goes from here
-      [ data, CoD, fit_region ] = Fit2D( [ guess.model ], guess, params );
-      % ***********************************upgrade of gpuaccelerate ends here
+      %[ data, CoD, fit_region ] = Fit2D( [ guess.model ], guess, params );
+        % save information about region of interest in a struct to pass it to the models. 
+        % round the rectangle, because we need interger values for cropping     
+        fit_model = Model2DGaussSymmetric( guess(1) );
+        bounds = fit_model.bounds;    
+        tl = round(bounds(1:2) - params.fit_size);
+        br = round(bounds(3:4) + params.fit_size);
+        % confine ROI to image (integer values should refer to the center of pixels)
+        tl( tl < 1 ) = 1; % top and left side
+        if br(1) > size( pic, 2 ) % bottom side
+            br(1) = size( pic, 2 );
+        end
+        if br(2) > size( pic, 1 ) % right side
+            br(2) = size( pic, 1 );
+        end
+      
+        data = struct( 'rect', [ round(tl)  round(br)-round(tl) ], 'center', []); 
+        data.offset = data.rect(1:2) - 1; %<< offset between the original and the cropped image
+        % crop image and store it in global variable      
+        fit_pic = imcrop( pic, data.rect ); %<< create cropped image
+        data.img_size = [ size( fit_pic, 2 ), size( fit_pic, 1 ) ];
+        % estimate background level if necessary
+        if isfield( params, 'background' ) % take given background level
+            if isnan(params.background)
+                data.background = median( [ fit_pic(1,:) fit_pic(end,:) transpose( fit_pic(:,1) ) transpose( fit_pic(:,end) ) ] );
+            else
+                data.background = params.background;
+            end
+        else
+            data.background = mean( [ fit_pic(1,:) fit_pic(end,:) transpose( fit_pic(:,1) ) transpose( fit_pic(:,end) ) ] );
+        end
+      
+        %%%%%%%fit start
+        % initial parameters
+        %[amp, x0, y0, width, offset]
+        
+        [imgHeight,imgWidth] = size(fit_pic);
+        if imgWidth~= imgHeight
+            if imgWidth>imgHeight
+               fit_pic(imgHeight+1:imgWidth,1:imgWidth) = zeros(imgWidth-imgHeight,imgWidth); 
+            else
+               fit_pic(1:imgHeight,imgWidth+1:imgHeight) = zeros(imgHeight,imgHeight-imgWidth); 
+            end
+            [imgWidth,imgHeight] = size(fit_pic);
+        end        
+        
+
+        fitData1D = single(reshape(fit_pic,imgWidth*imgHeight,1));
+        switch numel( guess ) 
+            case 2
+                model_id = ModelID.GAUSS_2D_x2;
+                pos =  guess(1).x;
+                pos2 =  guess(2).x;
+                initial_parameter = single([max(max(fit_pic))-data.background,  pos(2)-data.offset(2)-1,  pos(1)-data.offset(1)-1,  3, data.background,...
+                                           max(max(fit_pic))-data.background,pos2(2)-data.offset(2)-1,  pos2(1)-data.offset(1)-1,3]);
+            case 3
+                model_id = ModelID.GAUSS_2D_x3;
+                pos =  guess(1).x;
+                pos2 =  guess(2).x;
+                pos3 =  guess(3).x;
+                initial_parameter = single([max(max(fit_pic))-data.background,  pos(2)-data.offset(2)-1,  pos(1)-data.offset(1)-1,  3, data.background,...
+                                           max(max(fit_pic))-data.background,pos2(2)-data.offset(2)-1,  pos2(1)-data.offset(1)-1,3,...
+                                           max(max(fit_pic))-data.background,pos3(2)-data.offset(2)-1,  pos3(1)-data.offset(1)-1,3]);
+            case 4
+                model_id = ModelID.GAUSS_2D_x4;
+                pos =  guess(1).x;
+                pos2 =  guess(2).x;
+                pos3 =  guess(3).x;
+                pos4 =  guess(4).x;
+                initial_parameter = single([max(max(fit_pic))-data.background,  pos(2)-data.offset(2)-1,  pos(1)-data.offset(1)-1,  3, data.background,...
+                                            max(max(fit_pic))-data.background,pos2(2)-data.offset(2)-1,  pos2(1)-data.offset(1)-1,3,...
+                                            max(max(fit_pic))-data.background,pos3(2)-data.offset(2)-1,  pos3(1)-data.offset(1)-1,3,...
+                                            max(max(fit_pic))-data.background,pos4(2)-data.offset(2)-1,  pos4(1)-data.offset(1)-1,3]);
+            otherwise
+                model_id = ModelID.GAUSS_2D_x4;
+                pos =  guess(1).x;
+                pos2 =  guess(2).x;
+                pos3 =  guess(3).x;
+                pos4 =  guess(4).x;
+                initial_parameter = single([max(max(fit_pic))-data.background,  pos(2)-data.offset(2)-1,  pos(1)-data.offset(1)-1,  3, data.background,...
+                                            max(max(fit_pic))-data.background,pos2(2)-data.offset(2)-1,  pos2(1)-data.offset(1)-1,3,...
+                                            max(max(fit_pic))-data.background,pos3(2)-data.offset(2)-1,  pos3(1)-data.offset(1)-1,3,...
+                                            max(max(fit_pic))-data.background,pos4(2)-data.offset(2)-1,  pos4(1)-data.offset(1)-1,3]);
+        end
+                initial_parameter = repmat(single(initial_parameter'), [1, 1]); 
+                [parameters, states, chi_squares, n_iterations, time] = gpufit(fitData1D, [],model_id, initial_parameter, tolerance, max_n_iterations, [], estimator_id, []);
+
+                ampGpu = parameters(1);
+                xposGpu = parameters(2);
+                yposGpu = parameters(3);
+                widthGpu = parameters(4); 
+                offsetGpu = parameters(5);
+                tmpResult = [];
+        CoD = 1 - chi_squares ./ sum( ( fitData1D - mean( fitData1D,1) ).^2 );
+        xe = 0.0002;
+        tmpResult.x = double_error( [yposGpu,xposGpu] + data.offset, [xe,xe] );
+        tmpResult.o = double_error( ampGpu, xe );
+        tmpResult.w = double_error( widthGpu,xe); % 2.77.. = 4*log(2)
+        tmpResult.h = double_error( ampGpu, xe );
+        tmpResult.r = double_error( [] );
+        tmpResult.b = double_error( offsetGpu,xe );
+   
+       % ***********************************upgrade of gpuaccelerate ends here
        %     double( [ data.x ] )
 
        if params.display > 1
           PlotRect( [ fit_region(2:-1:1) fit_region(4:-1:3) - fit_region(2:-1:1) ], 'g' );
        end
     % check if fitting went well
-    if CoD < params.min_cod % bad fit result
+    %if CoD < params.min_cod % bad fit result
+    if states > 0 % bad fit result
       error_events.cluser_cod_low = error_events.cluster_cod_low + 1;
       continue;
     end
+    if min(parameters) <0
+        continue;
+    end
+ 
     
     % add region to list (have to exchange x and y variables!)
     %fit_regions(end+1,1:4) = fit_region( [ 2 1 4 3 ] );
@@ -662,7 +782,8 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerate( objects, param
     obj = 1;
       switch guess(obj).model
         case { 'p', 'b', 'r', 'e', 'm','d' } % single points
-          objects( guess(obj).obj ).p( guess(obj).idx ) = data(obj);
+
+          objects( guess(obj).obj ).p( guess(obj).idx ) = tmpResult;
           if guess(obj).model == 'm' || (guess(obj).model == 'e' &&  guess(obj).idx == 1)
             objects( guess(obj).obj ).p( guess(obj).idx ).o = objects( guess(obj).obj ).p( guess(obj).idx ).o - pi;
           end
@@ -773,15 +894,22 @@ function objects = fitRemainingPointsWithGpuAccelerate( objects, params )
         value.w = double_error( widthGpu,xe); % 2.77.. = 4*log(2)
         value.h = double_error( ampGpu, xe );
         value.r = double_error( [] );
-        value.b = double_error( [offsetGpu,xe] );
+        value.b = double_error( offsetGpu,xe );
         % ***********************************upgrade of gpuaccelerate ends here
-        if CoD > params.min_cod % fit went well
-          objects(k).p = data;
+        %if CoD > params.min_cod % fit went wellstates
+        if states == 0 % fit went well
+          objects(k).p = value;
         else % bad fit result
           objects(k).p = [];
           Log( [ 'Point-object has been disregarded: ' CoD2String( CoD ) ], params );
           error_events.bead_cod_low = error_events.bead_cod_low + 1;
           continue;
+        end
+        if min(parameters) <0
+             objects(k).p = [];
+              Log( [ 'Point-object has been disregarded: ' CoD2String( CoD ) ], params );
+              error_events.bead_cod_low = error_events.bead_cod_low + 1;
+            continue;
         end
       end
     elseif numel( objects(k).p ) == 2 && all(isnan(double([objects(k).p.o]))) % small filament

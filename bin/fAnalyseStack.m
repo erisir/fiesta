@@ -156,6 +156,7 @@ if Config.FirstTFrame>0
             try
                 Objects{n}=ScanImage(fGetStackFrame(Stack,n),params,n);
             catch ME
+                disp(ME);
                 save(fData,'-append','Objects','ME');
                 return;
             end
