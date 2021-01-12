@@ -34,18 +34,20 @@ function objects = FineScan( objects, params )
   TimeStamp( '        fitComplicatedParts start');
   tfitComplicatedPartsStart = tic;
   res = zeros(10,numel( objects ));%amp1amp2amp3x1x2x3y1y2y3width1width2width3bg1bg2bg3
+  params.gpu_accelerate = 1;
   if params.gpu_accelerate
     %[objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerate( objects, params );
-     [objects1, deleteObjects1]  = fitComplicatedParts( objects, params );
-     [objects2, deleteObjects2]  = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );  
+ 
+     [objects2, deleteObjects]  = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );  
+     [objects1, deleteObjects]  = fitComplicatedParts( objects, params );
   else
     [objects, deleteObjects] = fitComplicatedParts( objects, params ); 
   end
-  deleteObjectss = [deleteObjects1,deleteObjects2];
+
   tfitComplicatedPartsEnd = toc(tfitComplicatedPartsStart);
   TimeStamp( ['        fitComplicatedParts end    ',num2str(tfitComplicatedPartsEnd)]);
   %remove false points (post process analysis) from objects
-  %objects(deleteObjects)=[];
+  objects(deleteObjects)=[];
  
   %%----------------------------------------------------------------------------
   %% FIT REMAINING EASY POINTS
@@ -62,9 +64,10 @@ function objects = FineScan( objects, params )
     %objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params );  
     
     if 1==1
-    objects1 = fitRemainingPoints( objects1, params );
+    
     objects2 = fitRemainingPointsWithGpuAccelerateTruck( objects2, params );
-        for i = 1 : 50
+    objects1 = fitRemainingPoints( objects1, params );
+        for i = 1 : 5
             res(1,i) = double(  objects1(i).p.h  );
             res(2,i) = double(  objects2(i).p.h  );
             res(3,i) = double(  objects1(i).p.x(1) );
@@ -1307,17 +1310,19 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
     tmpResult.h = double_error( ampGpu(i), xe );
     tmpResult.r = double_error( [] );
     tmpResult.b = double_error( offsetGpu(i),xe );
-     		    % check if fitting went well
-    %if CoD < params.min_cod % bad fit result
-    if states(i) > 0 % bad fit result
-      error_events.cluser_cod_low = error_events.cluster_cod_low + 1;
-      continue;
-    end 
-    if min(parameters(:,i)) < 0 % bad fit result
-      error_events.cluser_cod_low = error_events.cluster_cod_low + 1;
-      continue;
-    end 
-    objects(indexList(i)).p( 1 ) = tmpResult;          
+    % check if fitting went well
+    if states(i) > 0 
+       %error_events.cluster_states_err = error_events.cluster_states_err + 1;
+       continue;
+    elseif CoD(i) < params.min_cod 
+       %error_events.cluster_cod_low = error_events.cluster_cod_low + 1;
+       continue;
+    elseif min([ampGpu(i),widthGpu(i),offsetGpu(i)]) < 0 
+       %error_events.cluster_param_outbound = error_events.cluster_param_outbound + 1;
+       continue;
+    else
+       objects(indexList(i)).p( 1 ) = tmpResult;  
+    end          
   end
   tDoFitComplicatedPartsEnd = toc(tDoFitComplicatedPartsStart);
   TimeStamp( ['            Do FitComplicatedParts with GPU Truck  End    ',num2str(tDoFitComplicatedPartsEnd)] );
@@ -1426,7 +1431,7 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
   tDoFitRemainingPartsStart = tic;
   [parameters, states, chi_squares, n_iterations, time] = gpufit(single(fitImgs2D), [],model_id, single(initial_parameters), tolerance, max_n_iterations, [], estimator_id, []);
   tDoFitRemainingPartsEnd = toc(tDoFitRemainingPartsStart);
-  TimeStamp( ['            Do FitRemainingParts witd GPU truck End    ',num2str(tDoFitRemainingPartsEnd),'    do 2dFit    ',num2str(tTotal/nFits)] );
+  TimeStamp( ['            Do FitRemainingParts witd GPU truck End    ',num2str(tDoFitRemainingPartsEnd)] );
    
   ampGpus = parameters(1,:);  
   xposGpus = parameters(2,:);  
@@ -1459,20 +1464,29 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
             value.b = double_error( [offsetGpu,chi_squares] );    
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %if CoD > params.min_cod % fit went well
-            if state ==0 || min(parameters(:,i)) >0
-              objects(k).p = value;
-            else % bad fit result
-              objects(k).p = [];
-              Log( [ 'Point-object has been disregarded: ' CoD2String( CoD ) ], params );
-              error_events.bead_cod_low = error_events.bead_cod_low + 1;
+            if state > 0 
+               %error_events.point_states_err = error_events.point_states_err + 1;
+               deletedObjects = [deletedObjects,k];
+               k = k + 1; % step to next object
+               i = i + 1; % step to next object
+               continue;
+            elseif CoD < 0%params.min_cod 
+               deletedObjects = [deletedObjects,k];
+               k = k + 1; % step to next object
+               i = i + 1; % step to next object
+               %error_events.point_cod_low = error_events.point_cod_low + 1;
+               continue;
+            elseif min([ampGpu,widthGpu,offsetGpu]) < 0 
+               deletedObjects = [deletedObjects,k];
+               k = k + 1; % step to next object
+               i = i + 1; % step to next object
+               %error_events.point_param_outbound = error_events.point_param_outbound + 1;
+               continue;
+            else
+               objects(k).p = value;
             end
             i = i+1;
-         end
-        % delete empty objects!
-        if isempty( objects(k).p )
-          deletedObjects = [deletedObjects,k];
-          error_events.empty_object = error_events.empty_object + 1; 
-        end
+          end
       end
       k = k + 1; % step to next object
   end
