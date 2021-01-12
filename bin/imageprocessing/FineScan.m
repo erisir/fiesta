@@ -33,17 +33,12 @@ function objects = FineScan( objects, params )
   % process clusters 
   TimeStamp( '        fitComplicatedParts start');
   tfitComplicatedPartsStart = tic;
-  res = zeros(10,numel( objects ));%amp1amp2amp3x1x2x3y1y2y3width1width2width3bg1bg2bg3
   params.gpu_accelerate = 1;
   if params.gpu_accelerate
-    %[objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerate( objects, params );
- 
-     [objects2, deleteObjects]  = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );  
-     [objects1, deleteObjects]  = fitComplicatedParts( objects, params );
+    [objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );
   else
     [objects, deleteObjects] = fitComplicatedParts( objects, params ); 
   end
-
   tfitComplicatedPartsEnd = toc(tfitComplicatedPartsStart);
   TimeStamp( ['        fitComplicatedParts end    ',num2str(tfitComplicatedPartsEnd)]);
   %remove false points (post process analysis) from objects
@@ -57,30 +52,9 @@ function objects = FineScan( objects, params )
   
   % process the remaining easy points
   TimeStamp( '        fitRemainingPoints start');
-  tfitRemainingPointsStart = tic;
-  
-  if params.gpu_accelerate
-    
-    %objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params );  
-    
-    if 1==1
-    
-    objects2 = fitRemainingPointsWithGpuAccelerateTruck( objects2, params );
-    objects1 = fitRemainingPoints( objects1, params );
-        for i = 1 : 5
-            res(1,i) = double(  objects1(i).p.h  );
-            res(2,i) = double(  objects2(i).p.h  );
-            res(3,i) = double(  objects1(i).p.x(1) );
-            res(4,i) = double(  objects2(i).p.x(1)  );
-            res(5,i) = double(  objects1(i).p.x(2)  );
-            res(6,i) = double(  objects2(i).p.x(2)  );
-            res(7,i) = double(  objects1(i).p.w  );
-            res(8,i) = double(  objects2(i).p.w  );
-            res(9,i) = double(  objects1(i).p.b(1)  );
-            res(10,i) = double(  objects2(i).p.b(1)  );
-        end
-    end
-  
+  tfitRemainingPointsStart = tic; 
+  if params.gpu_accelerate   
+    objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params );     
   else
     objects = fitRemainingPoints( objects, params );
   end
