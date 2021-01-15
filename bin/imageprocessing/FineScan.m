@@ -30,6 +30,7 @@ function objects = FineScan( objects, params )
   FIT_AREA_FACTOR = 4 * params.reduce_fit_box; %<< factor determining the size of the area used for fitting
   params.fit_size = ceil(FIT_AREA_FACTOR * params.object_width);%4*sigma (guass)
   debug =0;
+  params.gpu_accelerate = 1;
   if debug == 1
    
  
@@ -116,7 +117,7 @@ function objects = FineScan( objects, params )
     dispInfo.point_not_fitted = error_events.point_not_fitted;
     dispInfo.fit_hit_bounds=error_events.fit_hit_bounds;
     dispInfo.bead_cod_low = error_events.bead_cod_low;
-    dispInfo.cluser_cod_low = error_events.cluser_cod_low;
+    %dispInfo.cluser_cod_low = error_events.cluser_cod_low;
     dispInfo.empty_object = error_events.empty_object;
     dispInfo.cluster_gpufit_state_err=error_events.cluster_gpufit_state_err;
     dispInfo.cluster_gpufit_hit_bounds=error_events.cluster_gpufit_hit_bounds;
@@ -126,13 +127,12 @@ function objects = FineScan( objects, params )
     dispInfo.devInfoStr = devInfoStr;
     dispInfo.devInfo = devInfo;
     %disp(dispInfo);
-  end
+   
   
-  if 1==1   
+  else %debug ==0  
   % process clusters 
   TimeStamp( '        fitComplicatedParts start');
   tfitComplicatedPartsStart = tic;
-  params.gpu_accelerate = 0;
   if params.gpu_accelerate
     [objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );
   else
@@ -164,7 +164,7 @@ function objects = FineScan( objects, params )
        PlotOrientations( objects(k).p, {'r','g'}, 7 );
      end
   end
-  disp(error_events);
+  
   end
   %%----------------------------------------------------------------------------
   %% PLAUSIBILITY CHECK
@@ -643,7 +643,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   % CLUSTER ANALYSIS
   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  
+
   % determine bound of each object
   object_rects = zeros( numel(objects), 4 );
   for obj = 1 : numel( objects )
@@ -702,7 +702,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   if isempty( cluster_ids )
     return
   end 
-    
+  
   rough_objects = objects; % make backup for initial values
   point_ids = unique( cluster_ids(:,1:2), 'rows' );
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -713,30 +713,46 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         params.max_iter = 400; % maximum number of iterations
     end    
     % model ID and number of parameter
-   max_n_iterations = 400;
+   max_n_iterations = params.max_iter;
    tolerance = 1e-4;
    estimator_id = EstimatorID.LSE;
     
   imgWidthHeightMax = params.fit_size*2+1;
-  fitImgs2D_x2 = [];
-  fitImgs2D_x3 = [];
-  fitImgs2D_x4 = [];
+  n_fit_model = zeros(1,3);
+  n_fit_model_counter = ones(1,3);
+  for n = 1:size(point_ids,1)
+    obj = point_ids(n,1);  
+    point = point_ids(n,2);
+    idx = find(cluster_ids(:,1)==obj & cluster_ids(:,2)==point);
+    n_fits = numel(idx)+1;
+    if n_fits < 2
+       break;
+    end
+    if n_fits >4
+        n_fits = 4;
+    end
+    n_fit_model(n_fits-1) = n_fit_model(n_fits-1)+1;   
+  end
+  n_fits_total = sum(n_fit_model);
+  fitImgs2D_x2 = zeros(imgWidthHeightMax*imgWidthHeightMax,n_fit_model(1));
+  fitImgs2D_x3 = zeros(imgWidthHeightMax*imgWidthHeightMax,n_fit_model(2));
+  fitImgs2D_x4 = zeros(imgWidthHeightMax*imgWidthHeightMax,n_fit_model(3));
   
-  pointsOffsets = [];
+  pointsOffsets = zeros(2,n_fits_total);
   
-  initial_parameters_x2 = [];
-  initial_parameters_x3 = [];
-  initial_parameters_x4 = [];
+  initial_parameters_x2 = zeros(9,n_fit_model(1));
+  initial_parameters_x3 = zeros(13,n_fit_model(2));
+  initial_parameters_x4 = zeros(17,n_fit_model(3));
 
-  objIndexList = [];
+  objIndexList = zeros(1,n_fits_total);
   
-  currentFitIndexList_x2 = [];
-  currentFitIndexList_x3 = [];
-  currentFitIndexList_x4 = [];
+  currentFitIndexList_x2 = zeros(1,n_fit_model(3));
+  currentFitIndexList_x3 = zeros(1,n_fit_model(3));
+  currentFitIndexList_x4 = zeros(1,n_fit_model(3));
   
-  lowBoundList = [];
-  upperBoundList = []; 
- 
+  lowBoundList = zeros(17,n_fits_total);
+  upperBoundList = zeros(17,n_fits_total);
+
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   currentFitIds = 1; 
   for n = 1:size(point_ids,1)
@@ -751,13 +767,13 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
       end
       % determine the model to use for each object in the region
       guess(end+1).obj = obj;
-      if numel( objects(obj).p ) == 1 % check, if it is a point-like object
+
         guess(end).model = params.bead_model_char;
         guess(end).idx = 1;
         guess(end).x = double(rough_objects(obj).p(1).x);
         guess(end).w = double(rough_objects(obj).p(1).w);
         guess(end).r = double(rough_objects(obj).p(1).r);       
-      end % of choice of length of the object
+
     end % 'obj' of run through all objects in cluster
   
     % make sure we have a cluster, otherwise just go on
@@ -822,17 +838,13 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         % setup models
       fit_model = cell(1,num_points); %<< cell array containing the models used for fitting
         
-
       % init fitting parameters for varying the model
       ids = [1,4,6,9,10,13,14,17];
       x0 = zeros(1,17);       %<< array containing estimates for all parameters to fit
       lb = zeros(1,17);       %<< lower bound for each parameter
       ub = Inf*ones(1,17);       %<< upper bound for each parameter
-
       x0(5) = data.background;  
-
-               
-
+              
       % save center for calculation of lower and upper bounds
     
 
@@ -841,7 +853,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         fit_model{i} = Model2DGaussSymmetric( guess(i) );
         %lb,ub=      [ X  Y           Width             Height           ]
         %we use in gpufit as Height Y,X,Width,  bg, Height,Y,X,Width, Height,Y,X,Width,Height,Y,X,Width,
-        [ fit_model{i}, x0_m, ~, lb_m, ub_m ] = getParameter( fit_model{i}, data );
+        [ ~, x0_m, ~, lb_m, ub_m ] = getParameter( fit_model{i}, data );
         if params.threshold < 0
             lb_m(1:2) = x0_m(1:2) + params.threshold/1.414;
             ub_m(1:2) = x0_m(1:2) - params.threshold/1.414;
@@ -856,34 +868,34 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         ub(ids(2*i-1):ids(2*i)) = ub_m(reorderIds);
       end
       
+        lowBoundList(:,currentFitIds) = lb';
+        upperBoundList(:,currentFitIds) = ub';
+        pointsOffsets(:,currentFitIds)  = data.offset';
+        objIndexList(currentFitIds) = guess(1).obj; 
+        
         switch numel( guess ) 
-            case 2
-                initial_parameter = single(x0(1:9));               
-                fitImgs2D_x2 = [fitImgs2D_x2, reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1)];
-                initial_parameters_x2 = [initial_parameters_x2,initial_parameter'];        
-                currentFitIndexList_x2 = [currentFitIndexList_x2,currentFitIds];       
+            case 2       
+                fitImgs2D_x2(:,n_fit_model_counter(1)) =  reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1);
+                initial_parameters_x2(:,n_fit_model_counter(1)) = x0(1:9)';        
+                currentFitIndexList_x2(n_fit_model_counter(1)) = currentFitIds;
+                n_fit_model_counter(1) = n_fit_model_counter(1)+1;
             case 3                               
-                initial_parameter = single(x0(1:13));   
-                fitImgs2D_x3 = [fitImgs2D_x3, reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1)];
-                initial_parameters_x3 = [initial_parameters_x3,initial_parameter'];        
-                currentFitIndexList_x3 = [currentFitIndexList_x3,currentFitIds];   
+                fitImgs2D_x3(:,n_fit_model_counter(2)) =  reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1);
+                initial_parameters_x3(:,n_fit_model_counter(2)) = x0(1:13)';        
+                currentFitIndexList_x3(n_fit_model_counter(2)) = currentFitIds;
+                n_fit_model_counter(2) = n_fit_model_counter(2)+1;
             case 4
-                initial_parameter = single(x0);   
-                fitImgs2D_x4 = [fitImgs2D_x4, reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1)];
-                initial_parameters_x4 = [initial_parameters_x4,initial_parameter'];        
-                currentFitIndexList_x4 = [currentFitIndexList_x4,currentFitIds];   
+                fitImgs2D_x4(:,n_fit_model_counter(3)) =  reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1);
+                initial_parameters_x4(:,n_fit_model_counter(3)) = x0';        
+                currentFitIndexList_x4(n_fit_model_counter(3)) = currentFitIds;
+                n_fit_model_counter(3) = n_fit_model_counter(3)+1;
             otherwise
-                initial_parameter = single(x0);   
-                fitImgs2D_x4 = [fitImgs2D_x4, reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1)];
-                initial_parameters_x4 = [initial_parameters_x4,initial_parameter'];        
-                currentFitIndexList_x4 = [currentFitIndexList_x4,currentFitIds];   
-                
+                fitImgs2D_x4(:,n_fit_model_counter(3)) =  reshape(fit_pic,imgWidthHeightMax*imgWidthHeightMax,1);
+                initial_parameters_x4(:,n_fit_model_counter(3)) = x0';        
+                currentFitIndexList_x4(n_fit_model_counter(3)) = currentFitIds;
+                n_fit_model_counter(3) = n_fit_model_counter(3)+1;   
         end
-        currentFitIds = currentFitIds+1;
-        lowBoundList = [lowBoundList,lb'];
-        upperBoundList = [upperBoundList,ub'];
-        pointsOffsets = [pointsOffsets,data.offset'];
-        objIndexList = [objIndexList,guess(1).obj]; 
+        currentFitIds = currentFitIds+1;       
   end % 'k' of run through found clusters
   
   tDoFitComplicatedPartsStart = tic;
@@ -895,16 +907,34 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   [parameters_x3, states_x3, chi_squares_x3, ~, ~] = gpufit(single(fitImgs2D_x3), [], ModelID.GAUSS_2D_x3, single(initial_parameters_x3), tolerance, max_n_iterations,[], estimator_id, []);
   [parameters_x4, states_x4, chi_squares_x4, ~, ~] = gpufit(single(fitImgs2D_x4), [], ModelID.GAUSS_2D_x4, single(initial_parameters_x4), tolerance, max_n_iterations,[], estimator_id, []);
   
-  fitImgs2D = [fitImgs2D_x2,fitImgs2D_x3,fitImgs2D_x4];
-  chi_squares = [chi_squares_x2,chi_squares_x3,chi_squares_x4];
-  states = [states_x2,states_x3,states_x4];
-  n_fits = numel(states);
-  parameters = zeros(17,n_fits);
+  CoD_x2 = 1 - chi_squares_x2 ./ sum( ( fitImgs2D_x2 - mean( fitImgs2D_x2,1) ).^2 );
+  CoD_x3 = 1 - chi_squares_x3 ./ sum( ( fitImgs2D_x3 - mean( fitImgs2D_x3,1) ).^2 );
+  CoD_x4 = 1 - chi_squares_x4 ./ sum( ( fitImgs2D_x4 - mean( fitImgs2D_x4,1) ).^2 );
+    
+  
+  parameters = zeros(17,n_fits_total);
+  chi_squares = zeros(1,n_fits_total);
+  CoD = zeros(1,n_fits_total);
+  states = zeros(1,n_fits_total);
+  
   parameters(1:9, currentFitIndexList_x2) =parameters_x2;
   parameters(1:13,currentFitIndexList_x3) =parameters_x3;
   parameters(1:17,currentFitIndexList_x4) =parameters_x4;
-  CoD = 1 - chi_squares ./ sum( ( fitImgs2D - mean( fitImgs2D,1) ).^2 );
+  
+  chi_squares(currentFitIndexList_x2) = chi_squares_x2;
+  chi_squares(currentFitIndexList_x3) = chi_squares_x3;
+  chi_squares(currentFitIndexList_x4) = chi_squares_x4;
+
+  CoD(currentFitIndexList_x2) = CoD_x2;
+  CoD(currentFitIndexList_x3) = CoD_x3;
+  CoD(currentFitIndexList_x4) = CoD_x4;
+  
+  states(currentFitIndexList_x2) = states_x2;
+  states(currentFitIndexList_x3) = states_x3;
+  states(currentFitIndexList_x4) = states_x4;
+  
   [ xg, yg ] = meshgrid( 1:imgWidthHeightMax, 1:imgWidthHeightMax );
+
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   for k = 1:size(objIndexList,2)
     if states(k)>0
@@ -922,7 +952,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
             value.o = double_error( CoD(k), 0 );
             value.w = double_error( x(4)*2.355,chi_squares);
             value.r = double_error( 0,0 );
-            value.b = double_error( [x(5),chi_squares] );    
+            value.b = double_error( x(5),chi_squares );    
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
             objects(objIndexList(k)).p = value;
             if CoD(k) < params.min_cod 
