@@ -29,14 +29,13 @@ function objects = FineScan( objects, params )
 
   FIT_AREA_FACTOR = 4 * params.reduce_fit_box; %<< factor determining the size of the area used for fitting
   params.fit_size = ceil(FIT_AREA_FACTOR * params.object_width);%4*sigma (guass)
-  debug =0;
-  params.gpu_accelerate = 1;
+  debug =1;
   if debug == 1
    
  
     %[objects1, deleteObjects] = fitComplicatedPartsWithGpuAccelerate( objects, params );
     %objects1 = fitRemainingPointsWithGpuAccelerate( objects1, params ); 
-    TimeStamp( '        fitComplicatedParts start');
+    TimeStamp( '        fitComplicatedParts with gpu start');
     tfitComplicatedPartsStart = tic;
     
     [objects2, ~] = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );
@@ -934,25 +933,26 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   states(currentFitIndexList_x4) = states_x4;
   
   [ xg, yg ] = meshgrid( 1:imgWidthHeightMax, 1:imgWidthHeightMax );
-
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   for k = 1:size(objIndexList,2)
     if states(k)>0
         error_events.cluster_gpufit_state_err = error_events.cluster_gpufit_state_err + 1;
     else
         x = parameters(:,k);
+        chi_square = chi_squares(:,k);
         x(2:3) = x(2:3)+1;
         lb = lowBoundList(:,k); 
         ub = upperBoundList (:,k); 
         if  all( x >= lb ) && all( x <= ub )
-            value = [];           
-            chi_squares  = 0;
-            value.h = double_error( x(1), chi_squares );
-            value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [chi_squares,chi_squares] );
-            value.o = double_error( CoD(k), 0 );
-            value.w = double_error( x(4)*2.355,chi_squares);
-            value.r = double_error( 0,0 );
-            value.b = double_error( x(5),chi_squares );    
+          
+        value = [];                      
+        xe= caculateFitErr(x,chi_square,xg,yg);     
+        value.h = double_error( x(1), xe(1) );
+        value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [xe(3),xe(2)] );
+        value.o = double_error( CoD(k), 0 );
+        value.w = double_error( x(4)*2.355,xe(4)*2.355);
+        value.r = double_error( 0,0 );
+        value.b = double_error( x(5),xe(5) );    
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
             objects(objIndexList(k)).p = value;
             if CoD(k) < params.min_cod 
@@ -1105,14 +1105,16 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
         lb = lowBoundList(:,k); 
         ub = upperBoundList (:,k); 
         value = [];           
-        chi_squares  = 0;
-        value.h = double_error( x(1), chi_squares );
-        value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [chi_squares,chi_squares] );
+        chi_square  = chi_squares(:,k);
+        xe= caculateFitErr(x,chi_square,xg,yg);
+      
+        value.h = double_error( x(1), xe(1) );
+        value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [xe(3),xe(2)] );
         value.o = double_error( CoD(k), 0 );
-        value.w = double_error( x(4)*2.355,chi_squares);
+        value.w = double_error( x(4)*2.355,xe(4)*2.355);
         value.r = double_error( 0,0 );
-        value.b = double_error( x(5),chi_squares );    
-  
+        value.b = double_error( x(5),xe(5) );    
+ 
         objects(remainsIdsList(k)).p = value;
         if all( x >= lb ) && all( x <= ub )           
             if CoD(k) < params.min_cod 
@@ -1129,4 +1131,27 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
     k = k + 1; % step to next object
   end
   objects(deletedObjects) = [];
+end
+
+function [xe] = caculateFitErr(fitResult,chi_square,xg,yg)
+%CACULATEFITERR 此处显示有关此函数的摘要
+%   此处显示详细说明
+    
+    p = fitResult;
+    reduced_chi = chi_square / ( numel(xg) - numel(p) );
+    x = reshape(xg,numel(xg),1);
+    y = reshape(yg,numel(yg),1);
+    argx = (x - p(2)) .* (x - p(2)) ./ (2 * p(4) .* p(4));
+    argy = (y - p(3)) .* (y - p(3)) ./ (2 * p(4) .* p(4));
+    ex = exp(-(argx + argy));
+    %value =  p(1) * ex+p(5);
+    J = zeros(numel(xg),numel(p));
+    J(:,1) = ex;
+    J(:,2) = p(1) .* ex .* (x - p(2)) ./ (p(4) .* p(4));
+    J(:,3) = p(1) .* ex .* (y - p(3)) ./ (p(4) .* p(4));
+    J(:,4) = ex .* p(1) .* ((x - p(2)) .* (x - p(2)) + (y - p(3)) .* (y - p(3))) ./ (p(4) * p(4) .* p(4));
+    J(:,5) = 1;
+    J = sparse(J);
+    xe = sqrt( full(diag( inv( J' * J ) )).* reduced_chi);
+    xe = xe';
 end
