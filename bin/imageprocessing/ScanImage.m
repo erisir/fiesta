@@ -68,29 +68,16 @@ function objects = ScanImage( image, params, idx )
   pic = double( image ); 
   
   % rough scan
-  TimeStamp( 'START SCANNING');
-  TimeStamp( '    RoughScan start   ');
-  tRoughScanStart = tic;
   [ objects, params ] = RoughScan( params );
-  tRoughScanEnd = toc(tRoughScanStart);
-  TimeStamp( ['    RoughScan end    ',num2str(tRoughScanEnd)]);
   % fine scan
   if numel( objects ) > 0 && isreal(idx)
 
     % do fine scan where complicated areas and middle parts are fitted
-    Log( 'start fine scan', params );
-    TimeStamp( ['    Fine scan start    ',num2str(numel( objects ))]);
-    tFineScanStart = tic;
+    Log( 'start fine scan', params );   
     objects = FineScan( objects, params );
-    tFineScanEnd = toc(tFineScanStart);
-    TimeStamp([ '    Fine scan end    ',num2str(tFineScanEnd)]);
     % interpolate data
     Log( 'interpolate data between points', params );
-    TimeStamp( '    InterpolateData start   ');
-    tInterpolateDataStart = tic;
     objects = InterpolateData( objects, params );
-    tInterpolateDataEnd = toc(tInterpolateDataStart);
-    TimeStamp( ['    InterpolateData end    ',num2str(tInterpolateDataEnd)]);
     objects = orderfields(objects);
   end
   

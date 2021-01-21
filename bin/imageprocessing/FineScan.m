@@ -29,116 +29,14 @@ function objects = FineScan( objects, params )
 
   FIT_AREA_FACTOR = 4 * params.reduce_fit_box; %<< factor determining the size of the area used for fitting
   params.fit_size = ceil(FIT_AREA_FACTOR * params.object_width);%4*sigma (guass)
-  debug =1;
-  if debug == 1
    
- 
-    %[objects1, deleteObjects] = fitComplicatedPartsWithGpuAccelerate( objects, params );
-    %objects1 = fitRemainingPointsWithGpuAccelerate( objects1, params ); 
-    TimeStamp( '        fitComplicatedParts with gpu start');
-    tfitComplicatedPartsStart = tic;
-    
-    [objects2, ~] = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );
-    
-    tfitComplicatedPartsEnd = toc(tfitComplicatedPartsStart);
-    TimeStamp( ['        fitComplicatedParts with gpu end    ',num2str(tfitComplicatedPartsEnd)]);
-    
-    TimeStamp( '        fitRemainingPoints with gpu start');
-    tfitRemainingPointsStart = tic;
-    
-    objects2 = fitRemainingPointsWithGpuAccelerateTruck( objects2, params ); 
-    
-    tfitRemainingPointsEnd = toc(tfitRemainingPointsStart);
-    TimeStamp( ['        fitRemainingPoints with gpu end    ',num2str(tfitRemainingPointsEnd)]);
-    
-    TimeStamp( '        fitComplicatedParts start');
-    tfitComplicatedPartsStart = tic;
-    
-    [objects, ~] = fitComplicatedParts( objects, params );    
-    
-    tfitComplicatedPartsEnd = toc(tfitComplicatedPartsStart);
-    TimeStamp( ['        fitComplicatedParts end    ',num2str(tfitComplicatedPartsEnd)]);
-    
-    TimeStamp( '        fitRemainingPoints start');
-    tfitRemainingPointsStart = tic;
-    
-    objects = fitRemainingPoints( objects, params );
-    
-    tfitRemainingPointsEnd = toc(tfitRemainingPointsStart);
-    TimeStamp( ['        fitRemainingPoints end    ',num2str(tfitRemainingPointsEnd)]);
- 
-    
-    objects1 = objects;
-    cmpNums = min([numel(objects),numel(objects2)]);
-    cpuFitRes = zeros(7,cmpNums);  
-    gpuTruckFitRes = zeros(7,cmpNums);  
-
- 
-    for i = 1:cmpNums
-        if ~isnan( double(objects2(i).p(1).b) )
-            cpuFitRes(1,i) = double(  objects1(i).p.h  );
-            cpuFitRes(2,i) = double(  objects1(i).p.x(1) );  
-            cpuFitRes(3,i) = double(  objects1(i).p.x(2)  );
-            cpuFitRes(4,i) = double(  objects1(i).p.w  );
-            cpuFitRes(5,i) = double(  objects1(i).p.b(1)  );    
-            cpuFitRes(6,i) = double(  objects1(i).p.o  );
-            cpuFitRes(7,i) = double(  objects1(i).p.r  );
-            
-            gpuTruckFitRes(1,i) = double(  objects2(i).p.h  );
-            gpuTruckFitRes(2,i) = double(  objects2(i).p.x(1) );  
-            gpuTruckFitRes(3,i) = double(  objects2(i).p.x(2)  );
-            gpuTruckFitRes(4,i) = double(  objects2(i).p.w  );
-            gpuTruckFitRes(5,i) = double(  objects2(i).p.b(1)  );    
-            gpuTruckFitRes(6,i) = double(  objects2(i).p.o  );
-            gpuTruckFitRes(7,i) = double(  objects2(i).p.r  );
-
-        end
-    end
-    
-    
-   
-    devInfoStr = ["Height","xpos","ypos","width","bg","Cod","modelId"];
-    figure;%Cpu-Red:Gpu-Green
-     for ids = 1:6
-            subplot(3,2,ids);
-            hold on;
-            plot(cpuFitRes(ids,:),'ro');           
-            plot(cpuFitRes(ids,:),'r-');
-            %plot(gpuFitRes(ids,:),'r-');
-            %plot(gpuFitRes(ids,:),'ro');
-            plot(gpuTruckFitRes(ids,:),'g-');
-            plot(gpuTruckFitRes(ids,:),'g*');
-            ylabel(devInfoStr(ids));
-     end
- 
-    dispInfo = [];
-    dispInfo.touching_border = error_events.touching_border;
-    dispInfo.point_not_fitted = error_events.point_not_fitted;
-    dispInfo.fit_hit_bounds=error_events.fit_hit_bounds;
-    dispInfo.bead_cod_low = error_events.bead_cod_low;
-    %dispInfo.cluser_cod_low = error_events.cluser_cod_low;
-    dispInfo.empty_object = error_events.empty_object;
-    dispInfo.cluster_gpufit_state_err=error_events.cluster_gpufit_state_err;
-    dispInfo.cluster_gpufit_hit_bounds=error_events.cluster_gpufit_hit_bounds;
-    dispInfo.bead_gpufit_state_err=error_events.bead_gpufit_state_err;
-    dispInfo.bead_gpufit_hit_bounds=error_events.bead_gpufit_hit_bounds;
-    devInfo = zeros(1,5); 
-    dispInfo.devInfoStr = devInfoStr;
-    dispInfo.devInfo = devInfo;
-    %disp(dispInfo);
-   
-  
-  else %debug ==0  
   % process clusters 
-  TimeStamp( '        fitComplicatedParts start');
-  tfitComplicatedPartsStart = tic;
-  if params.gpu_accelerate
+  if gpufit_cuda_available()
     [objects, deleteObjects] = fitComplicatedPartsWithGpuAccelerateTruck( objects, params );
   else
     [objects, deleteObjects] = fitComplicatedParts( objects, params ); 
   end
-  tfitComplicatedPartsEnd = toc(tfitComplicatedPartsStart);
-  TimeStamp( ['        fitComplicatedParts end    ',num2str(tfitComplicatedPartsEnd)]);
+
   %remove false points (post process analysis) from objects
   objects(deleteObjects)=[];
  
@@ -149,22 +47,20 @@ function objects = FineScan( objects, params )
   Log( 'fit remaining intermediate points', params );
   
   % process the remaining easy points
-  TimeStamp( '        fitRemainingPoints start');
-  tfitRemainingPointsStart = tic; 
-  if params.gpu_accelerate   
+
+  if gpufit_cuda_available() 
     objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params );     
   else
     objects = fitRemainingPoints( objects, params );
   end
-  tfitRemainingPointsEnd = toc(tfitRemainingPointsStart);
-  TimeStamp( ['        fitRemainingPoints end    ',num2str(tfitRemainingPointsEnd)]);
+   
   if params.display > 1 % debug output
      for k = 1:numel( objects )
        PlotOrientations( objects(k).p, {'r','g'}, 7 );
      end
   end
   
-  end
+ 
   %%----------------------------------------------------------------------------
   %% PLAUSIBILITY CHECK
   %%----------------------------------------------------------------------------
@@ -405,7 +301,6 @@ function [objects,delete] = fitComplicatedParts( objects, params )
 
 end
 
-
 function objects = fitRemainingPoints( objects, params )
 %FITREMAININGPOINTS processes unfitted parts of the obejcts
 % arguments:
@@ -556,7 +451,6 @@ function inside = inRectangle( points, rect )
     inside = (points(:,1) >= rect(1))  & (points(:,2) >= rect(2)) & (points(:,1) <= rect(3)) & (points(:,2) <= rect(4));
   end
 end
-
 
 function [guess,delete,abort]=postProcessFit2D( data, guess, delete)
 %POSTPROCESS checks, if tracked points are too closed together or are not bright enough
@@ -806,16 +700,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         global fit_pic; % use global variables to speed up calculation
         fit_pic = imcrop( pic, data.rect ); %<< create cropped image
         
-        [imgHeight,imgWidth] = size(fit_pic);
-        if imgWidthHeightMax>imgHeight
-           fit_pic(imgHeight+1:imgWidthHeightMax,1:imgWidthHeightMax) = data.background*ones(imgWidthHeightMax-imgHeight,imgWidthHeightMax); 
-        end
-        if imgWidthHeightMax>imgWidth
-           fit_pic(1:imgWidthHeightMax,imgWidth+1:imgWidthHeightMax) = data.background*ones(imgWidthHeightMax,imgWidthHeightMax-imgWidth); 
-        end
-       
-         
-        data.img_size = [ size( fit_pic, 2 ), size( fit_pic, 1 ) ];
+
         % estimate background level if necessary
         if isfield( params, 'background' ) % take given background level
             if isnan(params.background)
@@ -826,6 +711,17 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         else
             data.background = mean( [ fit_pic(1,:) fit_pic(end,:) transpose( fit_pic(:,1) ) transpose( fit_pic(:,end) ) ] );
         end
+        
+        [imgHeight,imgWidth] = size(fit_pic);
+        if imgWidthHeightMax>imgHeight
+           fit_pic(imgHeight+1:imgWidthHeightMax,1:imgWidthHeightMax) = data.background*ones(imgWidthHeightMax-imgHeight,imgWidthHeightMax); 
+        end
+        if imgWidthHeightMax>imgWidth
+           fit_pic(1:imgWidthHeightMax,imgWidth+1:imgWidthHeightMax) = data.background*ones(imgWidthHeightMax,imgWidthHeightMax-imgWidth); 
+        end
+       
+         
+        data.img_size = [ size( fit_pic, 2 ), size( fit_pic, 1 ) ];
         
       num_points = numel(guess); 
       if num_points > 1
@@ -843,7 +739,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
       lb = zeros(1,17);       %<< lower bound for each parameter
       ub = Inf*ones(1,17);       %<< upper bound for each parameter
       x0(5) = data.background;  
-              
+ 
       % save center for calculation of lower and upper bounds
     
 
@@ -897,9 +793,7 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
         currentFitIds = currentFitIds+1;       
   end % 'k' of run through found clusters
   
-  tDoFitComplicatedPartsStart = tic;
-  TimeStamp( '            Do FitComplicatedParts with GPU Truck Start' );
-           % delete global vars to clean up
+  % delete global vars to clean up
   clear global fit_pic;
   
   [parameters_x2, states_x2, chi_squares_x2, ~, ~] = gpufit(single(fitImgs2D_x2), [], ModelID.GAUSS_2D_x2, single(initial_parameters_x2), tolerance, max_n_iterations,[], estimator_id, []);
@@ -908,22 +802,22 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   
   CoD_x2 = 1 - chi_squares_x2 ./ sum( ( fitImgs2D_x2 - mean( fitImgs2D_x2,1) ).^2 );
   CoD_x3 = 1 - chi_squares_x3 ./ sum( ( fitImgs2D_x3 - mean( fitImgs2D_x3,1) ).^2 );
-  CoD_x4 = 1 - chi_squares_x4 ./ sum( ( fitImgs2D_x4 - mean( fitImgs2D_x4,1) ).^2 );
-    
+  CoD_x4 = 1 - chi_squares_x4 ./ sum( ( fitImgs2D_x4 - mean( fitImgs2D_x4,1) ).^2 );   
   
   parameters = zeros(17,n_fits_total);
-  chi_squares = zeros(1,n_fits_total);
+  xes = zeros(5,n_fits_total);
   CoD = zeros(1,n_fits_total);
   states = zeros(1,n_fits_total);
   
   parameters(1:9, currentFitIndexList_x2) =parameters_x2;
   parameters(1:13,currentFitIndexList_x3) =parameters_x3;
   parameters(1:17,currentFitIndexList_x4) =parameters_x4;
-  
-  chi_squares(currentFitIndexList_x2) = chi_squares_x2;
-  chi_squares(currentFitIndexList_x3) = chi_squares_x3;
-  chi_squares(currentFitIndexList_x4) = chi_squares_x4;
-
+    
+  [ xg, yg ] = meshgrid( 1:imgWidthHeightMax, 1:imgWidthHeightMax );
+  xes(:, currentFitIndexList_x2)= caculateFitErr2D(2,parameters_x2,chi_squares_x2,xg,yg);
+  xes(:, currentFitIndexList_x3)= caculateFitErr2D(3,parameters_x3,chi_squares_x3,xg,yg);
+  xes(:, currentFitIndexList_x4)= caculateFitErr2D(4,parameters_x4,chi_squares_x4,xg,yg);
+ 
   CoD(currentFitIndexList_x2) = CoD_x2;
   CoD(currentFitIndexList_x3) = CoD_x3;
   CoD(currentFitIndexList_x4) = CoD_x4;
@@ -932,27 +826,25 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
   states(currentFitIndexList_x3) = states_x3;
   states(currentFitIndexList_x4) = states_x4;
   
-  [ xg, yg ] = meshgrid( 1:imgWidthHeightMax, 1:imgWidthHeightMax );
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   for k = 1:size(objIndexList,2)
     if states(k)>0
         error_events.cluster_gpufit_state_err = error_events.cluster_gpufit_state_err + 1;
     else
         x = parameters(:,k);
-        chi_square = chi_squares(:,k);
+       
         x(2:3) = x(2:3)+1;
         lb = lowBoundList(:,k); 
         ub = upperBoundList (:,k); 
-        if  all( x >= lb ) && all( x <= ub )
-          
-        value = [];                      
-        xe= caculateFitErr(x,chi_square,xg,yg);     
-        value.h = double_error( x(1), xe(1) );
-        value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [xe(3),xe(2)] );
-        value.o = double_error( CoD(k), 0 );
-        value.w = double_error( x(4)*2.355,xe(4)*2.355);
-        value.r = double_error( 0,0 );
-        value.b = double_error( x(5),xe(5) );    
+        if  all( x >= lb ) && all( x <= ub )       
+            value = [];                      
+            xe= xes(:,k);     
+            value.h = double_error( x(1), xe(1) );
+            value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [xe(3),xe(2)] );
+            value.o = double_error( CoD(k), 0 );
+            value.w = double_error( x(4)*2.355,xe(4)*2.355);
+            value.r = double_error( 0,0 );
+            value.b = double_error( x(5),xe(5) );    
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
             objects(objIndexList(k)).p = value;
             if CoD(k) < params.min_cod 
@@ -964,8 +856,6 @@ function [objects,delete] = fitComplicatedPartsWithGpuAccelerateTruck( objects, 
     end 
   end
    
-  tDoFitComplicatedPartsEnd = toc(tDoFitComplicatedPartsStart);
-  TimeStamp( ['            Do FitComplicatedParts with GPU Truck  End    ',num2str(tDoFitComplicatedPartsEnd)] );
 end
 
 function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
@@ -1085,15 +975,16 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
   end % of run through all objects
   clear global fit_pic;
   %do the truck fit 2d
-  TimeStamp( '            Do FitRemainingParts witd GPU truck Start    ' );
-  tDoFitRemainingPartsStart = tic;
+
   [parameters, states, chi_squares, ~, ~] = gpufit(single(fitImgs2D), [],model_id, single(initial_parameters), tolerance, max_n_iterations, [], estimator_id, []);
-  tDoFitRemainingPartsEnd = toc(tDoFitRemainingPartsStart);
-  TimeStamp( ['            Do FitRemainingParts witd GPU truck End    ',num2str(tDoFitRemainingPartsEnd)] );
      
   CoD = 1 - chi_squares ./ sum( ( fitImgs2D - mean( fitImgs2D,1) ).^2 );   
   [ xg, yg ] = meshgrid( 1:imgWidthHeightMax, 1:imgWidthHeightMax );
+  
+  xes= caculateFitErr2D(1,parameters,chi_squares,xg,yg);
+  
   deletedObjects = [];
+  
   k = 1;
   while k <= numel(remainsIdsList) % run through all objects
     if states(k)>0
@@ -1105,9 +996,7 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
         lb = lowBoundList(:,k); 
         ub = upperBoundList (:,k); 
         value = [];           
-        chi_square  = chi_squares(:,k);
-        xe= caculateFitErr(x,chi_square,xg,yg);
-      
+        xe = xes(:,k);
         value.h = double_error( x(1), xe(1) );
         value.x = double_error( [x(3)+pointsOffsets(1,k),x(2)+pointsOffsets(2,k)] , [xe(3),xe(2)] );
         value.o = double_error( CoD(k), 0 );
@@ -1133,25 +1022,156 @@ function objects = fitRemainingPointsWithGpuAccelerateTruck( objects, params )
   objects(deletedObjects) = [];
 end
 
-function [xe] = caculateFitErr(fitResult,chi_square,xg,yg)
-%CACULATEFITERR 此处显示有关此函数的摘要
-%   此处显示详细说明
+function [xe] = caculateFitErr2D(fitModel,fitResult,chi_square,xg,yg)
+ 
     
     p = fitResult;
-    reduced_chi = chi_square / ( numel(xg) - numel(p) );
+    reduced_chi = chi_square / ( numel(xg) - size(p,1) );
     x = reshape(xg,numel(xg),1);
     y = reshape(yg,numel(yg),1);
-    argx = (x - p(2)) .* (x - p(2)) ./ (2 * p(4) .* p(4));
-    argy = (y - p(3)) .* (y - p(3)) ./ (2 * p(4) .* p(4));
-    ex = exp(-(argx + argy));
-    %value =  p(1) * ex+p(5);
-    J = zeros(numel(xg),numel(p));
-    J(:,1) = ex;
-    J(:,2) = p(1) .* ex .* (x - p(2)) ./ (p(4) .* p(4));
-    J(:,3) = p(1) .* ex .* (y - p(3)) ./ (p(4) .* p(4));
-    J(:,4) = ex .* p(1) .* ((x - p(2)) .* (x - p(2)) + (y - p(3)) .* (y - p(3))) ./ (p(4) * p(4) .* p(4));
-    J(:,5) = 1;
-    J = sparse(J);
-    xe = sqrt( full(diag( inv( J' * J ) )).* reduced_chi);
-    xe = xe';
+    n_fits = size(fitResult,2);
+    switch fitModel
+        case 1
+            argx = (x - p(2,:)) .* (x - p(2,:)) ./ (2 * p(4,:) .* p(4,:));
+            argy = (y - p(3,:)) .* (y - p(3,:)) ./ (2 * p(4,:) .* p(4,:));
+            ex = exp(-(argx + argy));
+
+            J = zeros(numel(xg),n_fits,5);
+            J(:,:,1) = ex;
+            J(:,:,2) = p(1,:) .* ex .* (x - p(2,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,3) = p(1,:) .* ex .* (y - p(3,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,4) = ex .* p(1,:) .* ((x - p(2,:)) .* (x - p(2,:)) + (y - p(3,:)) .* (y - p(3,:))) ./ (p(4,:) .* p(4,:) .* p(4,:));
+            J(:,:,5) = 1;
+
+            xe = zeros(5,n_fits);
+            for i = 1:n_fits
+                Jsp = sparse(reshape(J(:,i,:),numel(xg),5));
+                e = sqrt( full(diag( inv( Jsp' * Jsp ) )).* reduced_chi(i));
+                xe(:,i) = e(1:5)';
+            end
+        case 2
+            argx = (x - p(2,:)) .* (x - p(2,:)) ./ (2 .* p(4,:) .* p(4,:));
+            argy = (y - p(3,:)) .* (y - p(3,:)) ./ (2 .* p(4,:) .* p(4,:));
+            ex = exp(-(argx + argy));
+
+            argx_2 = (x - p(7,:)) .* (x - p(7,:)) ./ (2 .* p(9,:) .* p(9,:));
+            argy_2 = (y - p(8,:)) .* (y - p(8,:)) ./ (2 .* p(9,:) .* p(9,:));
+            ex_2 = exp(-(argx_2 + argy_2));
+
+
+            partial_derivative_1 = ex .* p(1,:) .* ((x - p(2,:)) .* (x - p(2,:)) + (y - p(3,:)) .* (y - p(3,:))) ./ (p(4,:) .* p(4,:) .* p(4,:));
+            partial_derivative_2 = ex_2 .* p(6,:) .* ((x - p(7,:)) .* (x - p(7,:)) + (y - p(8,:)) .* (y - p(8,:))) ./ (p(9,:) .* p(9,:) .* p(9,:));
+            J = zeros(numel(xg),n_fits,9);
+            
+            J(:,:,1) = ex;
+            J(:,:,2) = p(1,:) .* ex .* (x - p(2,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,3) = p(1,:) .* ex .* (y - p(3,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,4) = partial_derivative_1;
+            J(:,:,5) = 1;
+
+            J(:,:,6) = ex_2;
+            J(:,:,7) = p(6,:) .* ex_2 .* (x - p(7,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,8) = p(6,:) .* ex_2 .* (y - p(8,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,9) = partial_derivative_2;
+            
+            xe = zeros(5,n_fits);
+            for i = 1:n_fits
+                Jsp = sparse(reshape(J(:,i,:),numel(xg),9));
+                e = sqrt( full(diag( inv( Jsp' * Jsp ) )).* reduced_chi(i));
+                xe(:,i) = e(1:5)';
+            end
+            
+            
+        case 3
+            argx = (x - p(2,:)) .* (x - p(2,:)) ./ (2 .* p(4,:) .* p(4,:));
+            argy = (y - p(3,:)) .* (y - p(3,:)) ./ (2 .* p(4,:) .* p(4,:));
+            ex = exp(-(argx + argy));
+
+            argx_2 = (x - p(7,:)) .* (x - p(7,:)) ./ (2 .* p(9,:) .* p(9,:));
+            argy_2 = (y - p(8,:)) .* (y - p(8,:)) ./ (2 .* p(9,:) .* p(9,:));
+            ex_2 = exp(-(argx_2 + argy_2));
+
+            argx_3 = (x - p(11,:)) .* (x - p(11,:)) ./ (2 .* p(13,:) .* p(13,:));
+            argy_3 = (y - p(12,:)) .* (y - p(12,:)) ./ (2 .* p(13,:) .* p(13,:));
+            ex_3 = exp(-(argx_3 + argy_3));
+ 
+            partial_derivative_1 = ex .* p(1,:) .* ((x - p(2,:)) .* (x - p(2,:)) + (y - p(3,:)) .* (y - p(3,:))) ./ (p(4,:) .* p(4,:) .* p(4,:));
+            partial_derivative_2 = ex_2 .* p(6,:) .* ((x - p(7,:)) .* (x - p(7,:)) + (y - p(8,:)) .* (y - p(8,:))) ./ (p(9,:) .* p(9,:) .* p(9,:));
+            partial_derivative_3 = ex_3 .* p(10,:) .* ((x - p(11,:)) .* (x - p(11,:)) + (y - p(12,:)) .* (y - p(12,:))) ./ (p(13,:) .* p(13,:) .* p(13,:));
+            
+            J = zeros(numel(xg),n_fits,13);
+            J(:,:,1) = ex;
+            J(:,:,2) = p(1,:) .* ex .* (x - p(2,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,3) = p(1,:) .* ex .* (y - p(3,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,4) = partial_derivative_1;
+            J(:,:,5) = 1;
+
+            J(:,:,6) = ex_2;
+            J(:,:,7) = p(6,:) .* ex_2 .* (x - p(7,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,8) = p(6,:) .* ex_2 .* (y - p(8,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,9) = partial_derivative_2;
+                           		
+            J(:,:,10 ) = ex_3;
+            J(:,:,11 ) = p(10,:) .* ex_3 .* (x - p(11,:)) ./ (p(13,:) .* p(13,:));
+            J(:,:,12 ) = p(10,:) .* ex_3 .* (y - p(12,:)) ./ (p(13,:) .* p(13,:));
+            J(:,:,13 ) = partial_derivative_3;
+    
+            xe = zeros(5,n_fits);
+            for i = 1:n_fits
+                Jsp = sparse(reshape(J(:,i,:),numel(xg),13));
+                e = sqrt( full(diag( inv( Jsp' * Jsp ) )).* reduced_chi(i));
+                xe(:,i) = e(1:5)';
+            end
+            
+        case 4
+            argx = (x - p(2,:)) .* (x - p(2,:)) ./ (2 .* p(4,:) .* p(4,:));
+            argy = (y - p(3,:)) .* (y - p(3,:)) ./ (2 .* p(4,:) .* p(4,:));
+            ex = exp(-(argx + argy));
+
+            argx_2 = (x - p(7,:)) .* (x - p(7,:)) ./ (2 .* p(9,:) .* p(9,:));
+            argy_2 = (y - p(8,:)) .* (y - p(8,:)) ./ (2 .* p(9,:) .* p(9,:));
+            ex_2 = exp(-(argx_2 + argy_2));
+
+            argx_3 = (x - p(11,:)) .* (x - p(11,:)) ./ (2 .* p(13,:) .* p(13,:));
+            argy_3 = (y - p(12,:)) .* (y - p(12,:)) ./ (2 .* p(13,:) .* p(13,:));
+            ex_3 = exp(-(argx_3 + argy_3));
+            
+            argx_4 = (x - p(15,:)) .* (x - p(15,:)) ./ (2 .* p(17,:) .* p(17,:));
+            argy_4 = (y - p(16,:)) .* (y - p(16,:)) ./ (2 .* p(17,:) .* p(17,:));
+            ex_4 = exp(-(argx_4 + argy_4));
+ 
+            partial_derivative_1 = ex .* p(1,:) .* ((x - p(2,:)) .* (x - p(2,:)) + (y - p(3,:)) .* (y - p(3,:))) ./ (p(4,:) .* p(4,:) .* p(4,:));
+            partial_derivative_2 = ex_2 .* p(6,:) .* ((x - p(7,:)) .* (x - p(7,:)) + (y - p(8,:)) .* (y - p(8,:))) ./ (p(9,:) .* p(9,:) .* p(9,:));
+            partial_derivative_3 = ex_3 .* p(10,:) .* ((x - p(11,:)) .* (x - p(11,:)) + (y - p(12,:)) .* (y - p(12,:))) ./ (p(13,:) .* p(13,:) .* p(13,:));
+            partial_derivative_4 = ex_4 .* p(14,:) .* ((x - p(15,:)) .* (x - p(15,:)) + (y - p(16,:)) .* (y - p(16,:))) ./ (p(17,:) .* p(17,:) .* p(17,:));
+            
+            J = zeros(numel(xg),n_fits,17);
+            J(:,:,1) = ex;
+            J(:,:,2) = p(1,:) .* ex .* (x - p(2,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,3) = p(1,:) .* ex .* (y - p(3,:)) ./ (p(4,:) .* p(4,:));
+            J(:,:,4) = partial_derivative_1;
+            J(:,:,5) = 1;
+
+            J(:,:,6) = ex_2;
+            J(:,:,7) = p(6,:) .* ex_2 .* (x - p(7,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,8) = p(6,:) .* ex_2 .* (y - p(8,:)) ./ (p(9,:) .* p(9,:));
+            J(:,:,9) = partial_derivative_2;
+                           		
+            J(:,:,10 ) = ex_3;
+            J(:,:,11 ) = p(10,:) .* ex_3 .* (x - p(11,:)) ./ (p(13,:) .* p(13,:));
+            J(:,:,12 ) = p(10,:) .* ex_3 .* (y - p(12,:)) ./ (p(13,:) .* p(13,:));
+            J(:,:,13 ) = partial_derivative_3;
+    
+            J(:,:,14 ) = ex_4;
+            J(:,:,15 ) = p(14,:) .* ex_3 .* (x - p(15,:)) ./ (p(17,:) .* p(17,:));
+            J(:,:,16 ) = p(14,:) .* ex_3 .* (y - p(16,:)) ./ (p(17,:) .* p(17,:));
+            J(:,:,17 ) = partial_derivative_4;
+
+            xe = zeros(5,n_fits);
+            for i = 1:n_fits
+                Jsp = sparse(reshape(J(:,i,:),numel(xg),17));
+                e = sqrt( full(diag( inv( Jsp' * Jsp ) )).* reduced_chi(i));
+                xe(:,i) = e(1:5)';
+            end
+    end
 end
