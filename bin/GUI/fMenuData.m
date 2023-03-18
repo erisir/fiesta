@@ -470,6 +470,7 @@ function LoadTracks(hMainGui)
 global Stack
 global Molecule;
 global Filament;
+global Config;
 fRightPanel('CheckReference',hMainGui);
 Mode=get(gcbo,'UserData');
 set(hMainGui.MidPanel.pNoData,'Visible','on')
@@ -500,7 +501,7 @@ if PathName~=0
         ME = fLoad([PathName FileName{n}],'ME');
         if isempty(ME)
             tempMicrotubule=[];
-            [tempMolecule,tempFilament]=fLoad([PathName FileName{n}],'Molecule','Filament');
+            [tempMolecule,tempFilament,tempConfig]=fLoad([PathName FileName{n}],'Molecule','Filament','Config');
             if isempty(tempMolecule)&&isempty(tempFilament)
                 [tempMolecule,tempFilament,tempMicrotubule]=fLoad([PathName FileName{n}],'sMolecule','sFilament','sMicrotubule');
             end
@@ -517,6 +518,7 @@ if PathName~=0
                     if ~isempty(tempMolecule)
                         tempMolecule = fDefStructure(tempMolecule,'Molecule');
                         Molecule = [Molecule tempMolecule]; %#ok<AGROW>
+                        Config = tempConfig;
                     end
                     if ~isempty(tempFilament)
                         tempFilament = fDefStructure(tempFilament,'Filament');
@@ -647,6 +649,7 @@ set(hMainGui.fig,'Pointer','arrow');
 function SaveTracks(hMainGui)
 global Molecule; 
 global Filament; 
+global Config;
 [FileName, PathName] = uiputfile({'*.mat','MAT-files (*.mat)'},'Save FIESTA Tracks',fShared('GetSaveDir'));
 if FileName ~= 0
     if ~isempty(strfind(get(gcbo,'UserData'),'select'))
@@ -661,7 +664,7 @@ if FileName ~= 0
     if isempty(findstr('.mat',file))
         file = [file '.mat'];
     end
-    save(file,'Molecule','Filament','-v6');
+    save(file,'Molecule','Filament','Config','-v6');
     set(hMainGui.fig,'Pointer','arrow');    
     if ~isempty(strfind(get(gcbo,'UserData'),'select'))
         Molecule = backup_Molecule;
