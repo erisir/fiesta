@@ -12,6 +12,10 @@ global DirCurrent;
 PathBackup = path;
 
 %get path where fiesta.m was started
+%{
+mfilename: return File name of currently running code
+filesep: returns the platform-specific file separator character. i.e. \ /
+%}
 DirRoot = [fileparts( mfilename('fullpath') ) filesep];
 
 if isdeployed
@@ -58,38 +62,39 @@ for n = 1:numel(link_fiestainfo)
 end
 
 version='';
-
-%get local version of FIESTA
-file_id = fopen([DirUpdater 'readme.txt'], 'r'); 
-if file_id ~= -1
-    index = fgetl(file_id);
-    str_version = index(66:end);
-    str_version = textscan(str_version,'%s','Delimiter','.');
-    local_version = str2double(str_version{1});
-    local_num = local_version(1)*100 + local_version(2)*10 + local_version(3);
-    fclose(file_id); 
-else
-    local_num = 0;
-end
-
-%compare local version with online version
-if ~isempty(online_str) && local_num<max(online_num)
-    button = questdlg({'There is FIESTA update available!','',['Do you want to update to version ' online_str ' now?']},'FIESTA Update','Yes','No','Yes');
-    if strcmp(button,'Yes')
-        [~,idx] = max(online_num);
-        try
-            jsondecode(webread(link_fiestainfo{idx}));
-            version='latest';
-        catch
-            t=warndlg({'Could not update FIESTA!','','Make sure that your internet is working.','','Support: fiesta@mailbox.tu-dresden.de'},'FIESTA Warning','modal');
-            uiwait(t);  
-        end
+if 0 %skip update checking
+    %get local version of FIESTA
+    file_id = fopen([DirUpdater 'readme.txt'], 'r'); 
+    if file_id ~= -1
+        index = fgetl(file_id);
+        str_version = index(66:end);
+        str_version = textscan(str_version,'%s','Delimiter','.');
+        local_version = str2double(str_version{1});
+        local_num = local_version(1)*100 + local_version(2)*10 + local_version(3);
+        fclose(file_id); 
     else
-        version='';
-    end        
-elseif isempty(online_str)
-    t=warndlg({'Could not check for FIESTA updates!','','Please check manually for updates.','','Support: fiesta@mailbox.tu-dresden.de'},'FIESTA Warning','modal');
-    uiwait(t);  
+        local_num = 0;
+    end
+
+    %compare local version with online version
+    if ~isempty(online_str) && local_num<max(online_num)
+        button = questdlg({'There is FIESTA update available!','',['Do you want to update to version ' online_str ' now?']},'FIESTA Update','Yes','No','Yes');
+        if strcmp(button,'Yes')
+            [~,idx] = max(online_num);
+            try
+                jsondecode(webread(link_fiestainfo{idx}));
+                version='latest';
+            catch
+                t=warndlg({'Could not update FIESTA!','','Make sure that your internet is working.','','Support: fiesta@mailbox.tu-dresden.de'},'FIESTA Warning','modal');
+                uiwait(t);  
+            end
+        else
+            version='';
+        end        
+    elseif isempty(online_str)
+        t=warndlg({'Could not check for FIESTA updates!','','Please check manually for updates.','','Support: fiesta@mailbox.tu-dresden.de'},'FIESTA Warning','modal');
+        uiwait(t);  
+    end
 end
 
 %check if FIESTA is the Library folder on Win and MacOS is available and correct
@@ -170,14 +175,6 @@ else
         end
     end
     
-    % add dependency for compiler
-    if  0   
-        %#function uacrun
-        %#function uacrun.mexw64
-        h = imread('About.jpg');
-        h = imread('uacrun.mexw64');
-        h = imread('bioformats_package.jar');
-    end
     
     % finally start the application
     try
